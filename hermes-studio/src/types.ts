@@ -104,6 +104,10 @@ export interface HermesConfig {
   path?: string;
   leadModel?: string;
   workerModel?: string;
+  /** inference provider for the turns (a custom provider name from the user's config) */
+  provider?: string;
+  leadProvider?: string;
+  workerProvider?: string;
   effort?: string;
   leadEffort?: string;
   yolo: boolean;
@@ -119,6 +123,10 @@ export interface StudioConfig {
   maxTurnsWorker: number;
   leadModel?: string;
   workerModel?: string;
+  /** inference provider for the turns (e.g. a custom provider name from the user's config) */
+  provider?: string;
+  leadProvider?: string;
+  workerProvider?: string;
   effort?: string;
   leadEffort?: string;
   yolo: boolean;

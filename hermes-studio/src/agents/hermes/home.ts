@@ -179,6 +179,10 @@ export function ensureAgentHome(o: AgentHomeOptions): string {
     }
   }
   dropStaleGatewayState(home);
+  // Sessions stay in this home's own store. Sharing the user's (~/.hermes/state.db) is refused by
+  // Hermes itself: its file-state guard stops writes to a store another gateway owns, and a home
+  // that has ever had a real store refuses the swap permanently. Read the turns with
+  // scripts/agent-transcript.mjs instead.
 
   // config.yaml: the user's config + our MCP server + the role instructions.
   const userConfig = path.join(userHermesHome(), 'config.yaml');

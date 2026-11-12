@@ -23,9 +23,12 @@ const USAGE = `hermes-studio — Hermes-native AgentCraft backend
   --data <dir>           state dir: AGENTCRAFT_HOME (default ~/.hermes-studio)
   --workers <a,b>        workers on shift (default: kit,wren)
   --model <m>            model for every agent
+  --provider <p>         inference provider for every agent (a custom provider name from your
+                         config.yaml; a bare model name is ambiguous when several are configured)
   --lead-model <m>       model for the lead
   --worker-model <m>     model for the workers
   --effort <e>           thinking effort (low|medium|high)
+  --lead-effort <e>      thinking effort for the lead
   --yolo                 let agents run without the tool gate asking first
   --auto-merge <id|all>  merge green CI without asking (experiment repos; repeatable)
   --user-name <name>     what the agents call you (default: your git name or "boss")
@@ -93,6 +96,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<Herm
     maxTurnsWorker: Number(one(opts, 'worker-turns') ?? 40),
     leadModel: one(opts, 'lead-model') ?? one(opts, 'model'),
     workerModel: one(opts, 'worker-model') ?? one(opts, 'model'),
+    provider: one(opts, 'provider'),
+    leadProvider: one(opts, 'lead-provider') ?? one(opts, 'provider'),
+    workerProvider: one(opts, 'worker-provider') ?? one(opts, 'provider'),
     effort: one(opts, 'effort'),
     leadEffort: one(opts, 'lead-effort') ?? one(opts, 'effort'),
     yolo: flags.has('yolo'),

@@ -462,6 +462,8 @@ export class HermesStudio {
     }
   }
 
+
+
   /** A goal still waiting for a plan (its lead turn died, e.g. the provider was down) gets another go. */
   recoverPlanning(): void {
     const goal = this.currentGoal();
