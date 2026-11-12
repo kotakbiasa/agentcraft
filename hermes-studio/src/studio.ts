@@ -625,13 +625,20 @@ export class HermesStudio {
         return { isError: true, errors: [(e as Error).message] };
       }
       const resultText = stats.resultText ?? '';
-      const cutOff = /cut off|output length limit/i.test([resultText, ...(stats.errors ?? [])].join(' '));
+      const haystack = [resultText, ...(stats.errors ?? [])].join(' ');
+      const cutOff = /cut off|output length limit/i.test(haystack);
+      // A failed request reaches the studio as a canned sentence, not an exception: Hermes answers
+      // "Your request was not processed..." (or echoes the provider's message) with exit 0, and the
+      // provider's own hiccups (403/408/429, a dead upstream) surface as "not retryable" inside the
+      // CLI but are worth another attempt from here.
       const transportFailure =
         stats.numTurns === 0 &&
-        /transient agent failure|api call failed|connection reset|non-retryable|error code|model is unavailable|failed to deserialize/i.test(
-          resultText,
+        /transient agent failure|api call failed|connection reset|non-retryable|error code|model is unavailable|failed to deserialize|not processed|not allowed to use model|permission_error|permissiondenied|rate limit/i.test(
+          haystack,
         );
-      const retryable = stats.isError ? cutOff : transportFailure;
+      // Either one is worth resuming the session for — including when the CLI already called it a
+      // hard error (a 403 that flaps is the common case, not a reason to strand the goal).
+      const retryable = cutOff || transportFailure;
       if (!retryable || attempt >= MAX_RETRIES) {
         if (transportFailure && attempt >= MAX_RETRIES) stats.isError = true;
         break;
@@ -642,6 +649,8 @@ export class HermesStudio {
         cutOff ? 'the reply was cut off at the output limit — continuing' : 'the turn failed at the provider — retrying',
       );
       this.feed('system', `${agentId}: ${cutOff ? 'output limit hit' : 'provider failed'} — retrying automatically`, agentId);
+      // a moment for a flapping provider (403/408/429) to come back before the retry
+      await new Promise((r) => setTimeout(r, 2000));
       spec.resume = this.store.data.sessions[agentId]?.sessionId;
       spec.prompt = cutOff
         ? 'Continue exactly where you stopped. Take the smallest possible step: one tool call, then stop and report what you did.'
