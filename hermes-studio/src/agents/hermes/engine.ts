@@ -207,11 +207,15 @@ export class HermesEngine implements Engine {
     const args = ['chat', '--oneshot', '--format', 'stream-json', '--in', cwd, '--query-file', promptFile, '--pass-session-id'];
     if (spec.resume) args.push('--resume', spec.resume);
     const model = role === 'lead' ? this.cfg.leadModel : this.cfg.workerModel;
-    if (model) args.push('--model', model);
+    // Hermes refuses `--model` together with `--resume` ("Resume retains gateway session policy;
+    // creation overrides are unsupported on resume") and the turn dies before the prompt is even
+    // delivered. A resumed session keeps the model it was launched with, so only a fresh session
+    // takes the flag; to move an existing session to a new model, clear its session id first.
+    if (model && !spec.resume) args.push('--model', model);
     // A model name alone is ambiguous once several custom providers are configured: name the
     // provider too, so the turn uses the same route the user's own Hermes does.
     const provider = role === 'lead' ? this.cfg.leadProvider : this.cfg.workerProvider;
-    if (provider) args.push('--provider', provider);
+    if (provider && !spec.resume) args.push('--provider', provider);
     const effort = role === 'lead' ? this.cfg.leadEffort : this.cfg.effort;
     if (effort) args.push('--reasoning', effort);
     const maxTurns = role === 'lead' ? this.fm.config.maxTurnsLead : this.fm.config.maxTurnsWorker;

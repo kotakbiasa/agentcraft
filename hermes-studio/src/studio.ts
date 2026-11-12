@@ -96,7 +96,7 @@ export class HermesStudio {
 
   constructor(config: StudioConfig, opts: { log?: Logger } = {}) {
     this.config = config;
-    this.log = opts.log ?? consoleLogger('hermes-studio');
+    this.log = opts.log ?? consoleLogger('hermes-studio', { debug: process.env.AGENTCRAFT_DEBUG === '1' });
     this.store = new Store(path.join(config.dataDir, 'hermes'));
     const ctx: Ctx = { store: this.store, emit: (m) => this.emit(m), now: () => Date.now(), log: this.log };
     this.repos = new RepoManager(ctx, path.join(config.dataDir, 'worktrees'), { mergeStyle: 'merge' });
@@ -577,13 +577,24 @@ export class HermesStudio {
     };
 
     let model: string | undefined;
+    // A resumed session keeps the model it was launched with: Hermes refuses `--model` on resume
+    // ("creation overrides are unsupported on resume"). So when this turn's model differs from the
+    // one the stored session recorded, start a fresh session instead of failing every turn.
+    const wanted = role === 'lead' ? this.config.leadModel : this.config.workerModel;
+    const prev = this.store.data.sessions[agentId];
+    const resumable = !wanted || !prev?.model || prev.model === wanted;
+    if (!resumable && prev?.sessionId) {
+      this.agentLog(agentId, 'text', `model changed to ${wanted} — starting a fresh session`);
+      delete prev.sessionId;
+      this.store.markDirty();
+    }
     const spec: TurnSpec = {
       agentId,
       role,
       cwd,
       prompt,
       instructions: this.instructions(role, member, cwd, task),
-      resume: this.store.data.sessions[agentId]?.sessionId,
+      resume: resumable ? this.store.data.sessions[agentId]?.sessionId : undefined,
       env: withGitSafety(process.env, agentGitIdentity(agentId) as Record<string, string>),
       abort,
       turn,
