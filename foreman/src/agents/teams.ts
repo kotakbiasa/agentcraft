@@ -1,19 +1,22 @@
-// Build the agent team for `--backend claude|codex` with the engines the config picks per role
-// and per agent (e.g. a Claude lead with Codex workers).
+// Build the agent team for `--backend claude|codex|hermes` with the engines the config picks per
+// role and per agent (e.g. a Claude lead with Hermes workers).
 import type { Config, EngineName } from '../config.js';
 import type { Foreman } from '../foreman.js';
 import { ClaudeEngine } from './claude/engine.js';
 import { CodexEngine } from './codex/engine.js';
 import type { Engine } from './engine.js';
+import { HermesEngine } from './hermes/engine.js';
 import { TeamBackend } from './team.js';
 
 export function createTeam(fm: Foreman, cfg: Config): TeamBackend {
   let claude: ClaudeEngine | undefined;
   let codex: CodexEngine | undefined;
-  const engine = (n: EngineName): Engine => (n === 'codex' ? (codex ??= new CodexEngine(fm, cfg.codex)) : (claude ??= new ClaudeEngine(fm, cfg.claude)));
+  let hermes: HermesEngine | undefined;
+  const engine = (n: EngineName): Engine =>
+    n === 'codex' ? (codex ??= new CodexEngine(fm, cfg.codex)) : n === 'hermes' ? (hermes ??= new HermesEngine(fm, cfg.hermes)) : (claude ??= new ClaudeEngine(fm, cfg.claude));
   const byAgent = Object.fromEntries(Object.entries(cfg.engines.byAgent).map(([agent, n]) => [agent, engine(n)]));
   return new TeamBackend(fm, cfg.claude, {
-    name: cfg.backend === 'codex' ? 'codex' : 'claude',
+    name: cfg.backend === 'codex' ? 'codex' : cfg.backend === 'hermes' ? 'hermes' : 'claude',
     engines: { lead: engine(cfg.engines.lead), worker: engine(cfg.engines.worker), byAgent },
   });
 }

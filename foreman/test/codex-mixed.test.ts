@@ -91,6 +91,18 @@ describe('engine config', () => {
     expect(load(['--codex-model', 'gpt-x', '--codex-lead-model', 'gpt-y', '--codex-effort', 'high']).codex).toMatchObject({ leadModel: 'gpt-y', workerModel: 'gpt-x', effort: 'high', leadEffort: 'high' });
     expect(() => load(['--worker-engine', 'gemini'])).toThrow(/unknown worker engine "gemini"/);
     expect(() => load(['--engines', 'kit'])).toThrow(/engine for kit/);
-    expect(() => load(['--backend', 'cursor'])).toThrow(/use sim, claude or codex/);
+    expect(() => load(['--backend', 'cursor'])).toThrow(/use sim, claude, codex or hermes/);
+    expect(load(['--backend', 'hermes']).engines).toEqual({ lead: 'hermes', worker: 'hermes', byAgent: {} });
+    expect(load(['--backend', 'hermes']).profile).toBe('hermes');
+    expect(load(['--backend', 'hermes', '--worker-engine', 'claude']).engines).toEqual({ lead: 'hermes', worker: 'claude', byAgent: {} });
+    expect(load(['--backend', 'claude', '--engines', 'kit=hermes']).engines.byAgent).toEqual({ kit: 'hermes' });
+    expect(load(['--hermes-model', 'h-x', '--hermes-lead-model', 'h-y', '--hermes-effort', 'high']).hermes).toMatchObject({
+      leadModel: 'h-y',
+      workerModel: 'h-x',
+      effort: 'high',
+      leadEffort: 'high',
+    });
+    expect(load([]).hermes.yolo).toBe(false);
+    expect(load(['--hermes-yolo']).hermes.yolo).toBe(true);
   });
 });

@@ -40,8 +40,8 @@ export interface ClaudeConfig {
   leadReadCommands: string[];
 }
 
-export type EngineName = 'claude' | 'codex';
-export const ENGINE_NAMES: readonly EngineName[] = ['claude', 'codex'];
+export type EngineName = 'claude' | 'codex' | 'hermes';
+export const ENGINE_NAMES: readonly EngineName[] = ['claude', 'codex', 'hermes'];
 
 /** Codex engine (`codex app-server`): models and effort default to your Codex config. */
 export interface CodexConfig {
@@ -52,6 +52,21 @@ export interface CodexConfig {
   /** model_reasoning_effort for workers / the lead (low, medium, high, xhigh...) */
   effort?: string;
   leadEffort?: string;
+}
+
+/** Hermes engine (`hermes chat --oneshot`): every agent is a Hermes Agent session. */
+export interface HermesConfig {
+  /** the hermes CLI (default: `hermes` on PATH, else ~/.local/bin/hermes) */
+  path?: string;
+  /** model for the lead/workers (e.g. "anthropic/claude-sonnet-4"); default: your Hermes config's */
+  leadModel?: string;
+  workerModel?: string;
+  /** reasoning effort for workers / the lead (none, minimal, low, medium, high, xhigh, max, ultra) */
+  effort?: string;
+  leadEffort?: string;
+  /** auto-approve the agent's tool calls (--yolo). Off by default: the git safety environment and
+   * the agent's own worktree are the backstop until Hermes approvals route through AgentCraft. */
+  yolo?: boolean;
 }
 
 /** Which engine runs the lead, the workers, and per-agent exceptions (`--engines kit=codex`). */
@@ -105,6 +120,7 @@ export interface Config {
   /** team settings (workers, CI, review, lead read commands) and the Claude engine's options */
   claude: ClaudeConfig;
   codex: CodexConfig;
+  hermes: HermesConfig;
   engines: EngineChoice;
   sim: SimConfig;
 }
@@ -207,7 +223,8 @@ export const KNOWN_FLAGS = new Set([
   'lead-model', 'worker-model', 'effort', 'lead-effort', 'max-turns', 'max-turns-lead', 'max-turns-worker',
   'max-concurrent', 'ci', 'max-budget', 'resume', 'lead-review', 'speed', 'seed', 'showcase', 'auto-answer',
   'ambient', 'lead-read-commands', 'lead-engine', 'worker-engine', 'engines', 'codex-path', 'codex-model', 'codex-lead-model',
-  'codex-worker-model', 'codex-effort', 'codex-lead-effort',
+  'codex-worker-model', 'codex-effort', 'codex-lead-effort', 'hermes-path', 'hermes-model', 'hermes-lead-model',
+  'hermes-worker-model', 'hermes-effort', 'hermes-lead-effort', 'hermes-yolo',
 ]);
 
 function engineName(v: unknown, d: EngineName, what: string): EngineName {
@@ -250,10 +267,11 @@ export function loadConfig(argv: string[], env: NodeJS.ProcessEnv = process.env)
   const fileClaude = (file.claude ?? {}) as Record<string, unknown>;
   const fileSim = (file.sim ?? {}) as Record<string, unknown>;
   const fileCodex = (file.codex ?? {}) as Record<string, unknown>;
+  const fileHermes = (file.hermes ?? {}) as Record<string, unknown>;
   const pick = (k: string, envKey?: string): unknown => flags[k] ?? (envKey ? env[envKey] : undefined) ?? file[k];
 
   const backendRaw = String(pick('backend', 'AGENTCRAFT_BACKEND') ?? 'claude');
-  if (backendRaw !== 'sim' && backendRaw !== 'claude' && backendRaw !== 'codex') throw new Error(`unknown backend "${backendRaw}" (use sim, claude or codex)`);
+  if (backendRaw !== 'sim' && backendRaw !== 'claude' && backendRaw !== 'codex' && backendRaw !== 'hermes') throw new Error(`unknown backend "${backendRaw}" (use sim, claude, codex or hermes)`);
   const backend = backendRaw as BackendName;
   const profile = str(pick('profile', 'AGENTCRAFT_PROFILE')) ?? backend;
   if (!/^[a-zA-Z0-9_-]+$/.test(profile)) throw new Error(`bad profile name "${profile}"`);
@@ -273,6 +291,7 @@ export function loadConfig(argv: string[], env: NodeJS.ProcessEnv = process.env)
       : ['juniper', 'kit', 'wren'];
 
   const model = str(flags.model);
+  const defaultEngine: EngineName = backend === 'codex' ? 'codex' : backend === 'hermes' ? 'hermes' : 'claude';
   const cfg: Config = {
     backend,
     userName: (str(pick('user-name', 'AGENTCRAFT_USER_NAME')) ?? str(file.userName))?.trim().slice(0, 40) || defaultUserName(),
@@ -318,9 +337,17 @@ export function loadConfig(argv: string[], env: NodeJS.ProcessEnv = process.env)
       effort: str(flags['codex-effort']) ?? str(fileCodex.effort),
       leadEffort: str(flags['codex-lead-effort']) ?? str(flags['codex-effort']) ?? str(fileCodex.leadEffort) ?? str(fileCodex.effort),
     },
+    hermes: {
+      path: str(flags['hermes-path']) ?? str(env.AGENTCRAFT_HERMES_PATH) ?? str(fileHermes.path),
+      leadModel: str(flags['hermes-lead-model']) ?? str(flags['hermes-model']) ?? str(fileHermes.leadModel) ?? str(fileHermes.model),
+      workerModel: str(flags['hermes-worker-model']) ?? str(flags['hermes-model']) ?? str(fileHermes.workerModel) ?? str(fileHermes.model),
+      effort: str(flags['hermes-effort']) ?? str(fileHermes.effort),
+      leadEffort: str(flags['hermes-lead-effort']) ?? str(flags['hermes-effort']) ?? str(fileHermes.leadEffort) ?? str(fileHermes.effort),
+      yolo: bool(flags['hermes-yolo'] ?? env.AGENTCRAFT_HERMES_YOLO ?? fileHermes.yolo, false),
+    },
     engines: {
-      lead: engineName(pick('lead-engine', 'AGENTCRAFT_LEAD_ENGINE') ?? (file.engines as Record<string, unknown> | undefined)?.lead, backend === 'codex' ? 'codex' : 'claude', 'lead engine'),
-      worker: engineName(pick('worker-engine', 'AGENTCRAFT_WORKER_ENGINE') ?? (file.engines as Record<string, unknown> | undefined)?.worker, backend === 'codex' ? 'codex' : 'claude', 'worker engine'),
+      lead: engineName(pick('lead-engine', 'AGENTCRAFT_LEAD_ENGINE') ?? (file.engines as Record<string, unknown> | undefined)?.lead, defaultEngine, 'lead engine'),
+      worker: engineName(pick('worker-engine', 'AGENTCRAFT_WORKER_ENGINE') ?? (file.engines as Record<string, unknown> | undefined)?.worker, defaultEngine, 'worker engine'),
       byAgent: engineMap(flags.engines ?? env.AGENTCRAFT_ENGINES ?? (file.engines as Record<string, unknown> | undefined)?.byAgent),
     },
     sim: {
@@ -340,7 +367,8 @@ export const HELP = `AgentCraft Foreman ${FOREMAN_VERSION}
 
 usage: npm run start -- [options]
 
-  --backend sim|claude|codex  agent backend (default: claude; codex = an all-Codex team)
+  --backend sim|claude|codex|hermes  agent backend (default: claude; codex = an all-Codex team,
+                           hermes = an all-Hermes team)
   --repo <path>[,<path>]   register local git repo(s) at start (sim: defaults to a fresh sandbox/sim-demo)
   --goal "<text>"          submit a goal right away
   --port <n>               WebSocket port (default 7878, env AGENTCRAFT_PORT)
@@ -396,4 +424,16 @@ usage: npm run start -- [options]
   --codex-effort <e>       reasoning effort (low|medium|high|xhigh...; default: your Codex config's)
   Codex agents get none of your own MCP servers, plugins, web search or apps; every command and
   out-of-worktree edit goes through the same policy and in-game permission prompts.
+
+ hermes engine (--backend hermes, or mixed teams)
+  auth: your Hermes setup (\`hermes status\` / \`hermes login\`); credentials stay yours, each agent
+  gets its own Hermes home under the profile with .env and auth.json symlinked in
+  --hermes-path <path>      the hermes CLI (default: \`hermes\` on PATH, else ~/.local/bin/hermes)
+  --hermes-model <m>        model for Hermes agents (default: your Hermes config's)
+  --hermes-lead-model <m> / --hermes-worker-model <m>
+  --hermes-effort <e>       reasoning effort (none|minimal|low|medium|high|xhigh|max|ultra)
+  --hermes-yolo             auto-approve tool calls (default off)
+  Every agent is a Hermes Agent session; the team tools are served to it as the "agentcraft" MCP
+  server of its own home, so ask_user/update_task/request_merge drive the same task wall as the
+  other engines.
 `;
