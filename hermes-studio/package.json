@@ -1,0 +1,26 @@
+{
+  "name": "agentcraft-hermes-studio",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "AgentCraft hermes-studio: the Hermes-native backend the Minecraft mod renders (protocol v1, repo worktrees, CI, merges).",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node --import tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ws": "^8.22.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.0"
+  }
+}
