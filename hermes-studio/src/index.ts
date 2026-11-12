@@ -108,6 +108,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<Herm
   // with the repos known, any task left over from a previous run can be started again
   studio.assignOpenTasks();
   studio.recoverReviews();
+  studio.recoverPlanning();
   if (one(opts, 'goal')) await studio.submitGoal(String(one(opts, 'goal')));
 
   const shutdown = () => {

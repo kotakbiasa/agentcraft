@@ -462,6 +462,21 @@ export class HermesStudio {
     }
   }
 
+  /** A goal still waiting for a plan (its lead turn died, e.g. the provider was down) gets another go. */
+  recoverPlanning(): void {
+    const goal = this.currentGoal();
+    if (!goal || goal.status !== 'planning') return;
+    if (this.store.data.tasks.some((t) => t.goalId === goal.id)) return;
+    const repo = goal.repoId ? this.repos.get(goal.repoId) : undefined;
+    this.feed('system', `goal ${goal.id} has no plan yet — asking the lead again`, LEAD_ID);
+    void this.enqueue(LEAD_ID, () =>
+      this.runTurn(LEAD_ID, 'lead', this.goalPrompt(goal, repo?.path, repo?.branch), {
+        cwd: repo?.path,
+        activity: `planning ${goal.id}`,
+      }),
+    );
+  }
+
   private startWorker(agentId: string, taskId: string): void {
     const key = `${agentId}:${taskId}`;
     if (this.queues.has(key)) return;
@@ -590,14 +605,45 @@ export class HermesStudio {
     this.agentLog(agentId, 'text', prompt);
 
     let stats: TurnStats;
-    try {
-      stats = await this.engine.runTurn(spec);
-    } catch (e) {
-      this.aborters.delete(agentId);
-      this.setAgent(agentId, { state: 'error', activity: 'turn failed' });
-      this.agentLog(agentId, 'error', `turn failed: ${(e as Error).message}`);
-      this.log.error(`${agentId} turn failed: ${(e as Error).message}`);
-      return { isError: true, errors: [(e as Error).message] };
+    // Two ways a turn can end having done nothing, both of which look like success on the wire:
+    //   • the model spends its output budget mid-turn and is cut off (the free model does this);
+    //   • the provider fails the request and the gateway reports it as a short text response.
+    // Either way the goal would stall forever, so resume the same session — bounded, so a
+    // genuinely stuck turn still ends and reports. Nothing was changed by a failed turn, so a
+    // transport failure replays the original prompt while a cut-off gets a continue nudge.
+    const MAX_RETRIES = 2;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        stats = await this.engine.runTurn(spec);
+      } catch (e) {
+        this.aborters.delete(agentId);
+        this.setAgent(agentId, { state: 'error', activity: 'turn failed' });
+        this.agentLog(agentId, 'error', `turn failed: ${(e as Error).message}`);
+        this.log.error(`${agentId} turn failed: ${(e as Error).message}`);
+        return { isError: true, errors: [(e as Error).message] };
+      }
+      const resultText = stats.resultText ?? '';
+      const cutOff = /cut off|output length limit/i.test([resultText, ...(stats.errors ?? [])].join(' '));
+      const transportFailure =
+        stats.numTurns === 0 &&
+        /transient agent failure|api call failed|connection reset|non-retryable|error code|model is unavailable|failed to deserialize/i.test(
+          resultText,
+        );
+      const retryable = stats.isError ? cutOff : transportFailure;
+      if (!retryable || attempt >= MAX_RETRIES) {
+        if (transportFailure && attempt >= MAX_RETRIES) stats.isError = true;
+        break;
+      }
+      this.agentLog(
+        agentId,
+        'text',
+        cutOff ? 'the reply was cut off at the output limit — continuing' : 'the turn failed at the provider — retrying',
+      );
+      this.feed('system', `${agentId}: ${cutOff ? 'output limit hit' : 'provider failed'} — retrying automatically`, agentId);
+      spec.resume = this.store.data.sessions[agentId]?.sessionId;
+      spec.prompt = cutOff
+        ? 'Continue exactly where you stopped. Take the smallest possible step: one tool call, then stop and report what you did.'
+        : prompt;
     }
     this.aborters.delete(agentId);
     this.turns.delete(agentId);
